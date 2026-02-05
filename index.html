@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Youtube, ExternalLink, ChevronDown, User, Activity, Network, Mic2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Moon, Sun, Youtube, ExternalLink, ChevronDown, User, Activity, Network, Mic2, Sparkles, MessageSquare, Send, Loader2, Lightbulb } from 'lucide-react';
 
 // Custom X (Twitter) Icon Component since it's not always standard in older lucide versions
 const XIcon = ({ size = 24, className = "" }) => (
@@ -14,6 +14,241 @@ const XIcon = ({ size = 24, className = "" }) => (
     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
   </svg>
 );
+
+// --- Gemini API Helper Function ---
+const callGeminiAPI = async (prompt, systemInstruction = "") => {
+  const apiKey = ""; // Provided by the environment at runtime
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    systemInstruction: { parts: [{ text: systemInstruction }] }
+  };
+
+  let delay = 1000;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || "申し訳ありません。応答を生成できませんでした。";
+    } catch (error) {
+      if (i === 4) return "通信エラーが発生しました。しばらく待ってから再試行してください。";
+      await new Promise(r => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
+};
+
+const AIFeatures = ({ isDarkMode }) => {
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'planner'
+  
+  // Chat State
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState([
+    { role: "model", text: "こんにちは！まろちょふAIアシスタントです。麻雀のことや、まろちょふの活動について何でも聞いてください！" }
+  ]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatContainerRef = useRef(null);
+
+  // Planner State
+  const [plannerInput, setPlannerInput] = useState("");
+  const [plannerResult, setPlannerResult] = useState("");
+  const [isPlannerLoading, setIsPlannerLoading] = useState(false);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatHistory]);
+
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userMsg = chatInput;
+    setChatInput("");
+    setChatHistory(prev => [...prev, { role: "user", text: userMsg }]);
+    setIsChatLoading(true);
+
+    const systemPrompt = `
+      あなたは麻雀プロ・YouTuberの「まろちょふ（張替 雅人）」のアシスタントAIです。
+      
+      【まろちょふのプロフィール】
+      - 麻雀ウォッチ・チーフライター、日本プロ麻雀協会所属。
+      - Mリーグや雀魂のデータ分析、情報発信が得意。業界随一の情報量を誇る。
+      - 雀魂私設リーグ「Σリーグ」代表。
+      - 「麻雀業界のあらゆる情報に携わる」がモットー。
+      - 丁寧だが親しみやすいキャラクター。
+      
+      ユーザーからの麻雀に関する質問や、まろちょふの活動に関する質問に、まろちょふのアシスタントとして答えてください。
+      回答は日本語で、150文字程度で簡潔かつ親切に答えてください。
+    `;
+
+    // Construct conversation history for context (simplified)
+    const context = chatHistory.slice(-4).map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.text}`).join('\n');
+    const prompt = `${context}\nUser: ${userMsg}\nAssistant:`;
+
+    const response = await callGeminiAPI(prompt, systemPrompt);
+    
+    setChatHistory(prev => [...prev, { role: "model", text: response }]);
+    setIsChatLoading(false);
+  };
+
+  const handlePlannerSubmit = async (e) => {
+    e.preventDefault();
+    if (!plannerInput.trim() || isPlannerLoading) return;
+
+    setIsPlannerLoading(true);
+    setPlannerResult("");
+
+    const systemPrompt = "あなたはYouTube企画作家です。ターゲットは麻雀ファンやエンタメ好きの層です。";
+    const prompt = `
+      キーワード「${plannerInput}」を使って、麻雀YouTuber「まろちょふ」がやりそうなYouTube企画を3つ提案してください。
+      出力形式は以下のようにしてください：
+      
+      1. 【企画タイトル】
+         - 概要: ...
+         - 見どころ: ...
+      
+      （これを3つ）
+      
+      絵文字を使って楽しそうに表現してください。
+    `;
+
+    const response = await callGeminiAPI(prompt, systemPrompt);
+    setPlannerResult(response);
+    setIsPlannerLoading(false);
+  };
+
+  return (
+    <div className={`rounded-2xl overflow-hidden shadow-2xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
+      {/* Header */}
+      <div className={`p-4 border-b ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-gray-50 border-gray-200'} flex justify-between items-center`}>
+        <h3 className="font-bold text-lg flex items-center gap-2">
+          <Sparkles className="text-yellow-500" size={20} />
+          AI Interactive Zone
+        </h3>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${activeTab === 'chat' ? 'bg-[#E74C3C] text-white' : 'opacity-60 hover:opacity-100'}`}
+          >
+            Chat
+          </button>
+          <button
+            onClick={() => setActiveTab('planner')}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${activeTab === 'planner' ? 'bg-[#E74C3C] text-white' : 'opacity-60 hover:opacity-100'}`}
+          >
+            企画メーカー
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-6 h-[400px] flex flex-col">
+        {activeTab === 'chat' ? (
+          <>
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+              {chatHistory.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] p-3 rounded-2xl ${
+                    msg.role === 'user' 
+                      ? 'bg-[#E74C3C] text-white rounded-tr-none' 
+                      : (isDarkMode ? 'bg-slate-700 text-gray-100' : 'bg-gray-100 text-gray-800') + ' rounded-tl-none'
+                  }`}>
+                    <p className="text-sm">{msg.text}</p>
+                  </div>
+                </div>
+              ))}
+              {isChatLoading && (
+                <div className="flex justify-start">
+                  <div className={`p-3 rounded-2xl rounded-tl-none ${isDarkMode ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                    <Loader2 className="animate-spin text-[#E74C3C]" size={20} />
+                  </div>
+                </div>
+              )}
+            </div>
+            <form onSubmit={handleChatSubmit} className="relative">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="例: Σリーグって何？"
+                className={`w-full pr-12 pl-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[#E74C3C] ${
+                  isDarkMode ? 'bg-slate-900 border-slate-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-300 text-gray-900'
+                }`}
+              />
+              <button 
+                type="submit" 
+                disabled={isChatLoading || !chatInput.trim()}
+                className="absolute right-2 top-2 p-1.5 bg-[#E74C3C] text-white rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                <Send size={18} />
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className="h-full flex flex-col">
+            <div className="text-center mb-6">
+              <Lightbulb className="mx-auto text-yellow-500 mb-2" size={32} />
+              <p className="text-sm opacity-80">キーワードを入れると、AIが動画企画を提案します！</p>
+            </div>
+            
+            {!plannerResult && !isPlannerLoading && (
+               <form onSubmit={handlePlannerSubmit} className="flex gap-2 mb-4">
+               <input
+                 type="text"
+                 value={plannerInput}
+                 onChange={(e) => setPlannerInput(e.target.value)}
+                 placeholder="例: Mリーグ, 激辛カレー, 初心者講座"
+                 className={`flex-1 px-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[#E74C3C] ${
+                   isDarkMode ? 'bg-slate-900 border-slate-600 text-white' : 'bg-gray-50 border-gray-300'
+                 }`}
+               />
+               <button 
+                 type="submit"
+                 disabled={!plannerInput.trim()} 
+                 className="bg-[#E74C3C] text-white px-4 py-2 rounded-xl font-bold hover:bg-red-600 transition-colors whitespace-nowrap"
+               >
+                 生成 ✨
+               </button>
+             </form>
+            )}
+
+            {isPlannerLoading && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center opacity-70">
+                <Loader2 className="animate-spin text-[#E74C3C] mb-2" size={32} />
+                <p>面白い企画を考え中...</p>
+              </div>
+            )}
+
+            {plannerResult && (
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div className={`p-4 rounded-xl whitespace-pre-wrap text-sm leading-relaxed ${isDarkMode ? 'bg-slate-700' : 'bg-gray-50'}`}>
+                  {plannerResult}
+                </div>
+                <button 
+                  onClick={() => setPlannerResult("")}
+                  className="mt-4 text-[#E74C3C] text-sm font-bold underline hover:text-red-600 block text-center"
+                >
+                  もう一度考える
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const App = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -55,6 +290,9 @@ const App = () => {
               MAROCHOFU<span className="text-[#E74C3C]">.</span>
             </div>
             <div className="flex items-center space-x-4">
+              <a href="#ai-zone" className="hidden md:flex items-center gap-1 text-sm font-bold bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1 rounded-full animate-pulse">
+                <Sparkles size={14} /> AI ZONE
+              </a>
               <button
                 onClick={toggleTheme}
                 className={`p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-slate-700 text-yellow-400' : 'hover:bg-gray-100 text-[#2c3E50]'}`}
@@ -86,8 +324,8 @@ const App = () => {
               <a href="#about" className="px-8 py-3 rounded-full bg-[#E74C3C] text-white font-semibold hover:bg-red-600 transition-all transform hover:scale-105 shadow-lg">
                 詳しく見る
               </a>
-              <a href="#contact" className={`px-8 py-3 rounded-full border-2 font-semibold transition-all hover:bg-opacity-10 ${isDarkMode ? 'border-[#E74C3C] text-[#E74C3C] hover:bg-[#E74C3C]' : 'border-[#2c3E50] text-[#2c3E50] hover:bg-[#2c3E50]'}`}>
-                活動をチェック
+              <a href="#ai-zone" className={`px-8 py-3 rounded-full border-2 font-semibold transition-all hover:bg-opacity-10 flex items-center justify-center gap-2 ${isDarkMode ? 'border-yellow-500 text-yellow-400 hover:bg-yellow-500' : 'border-yellow-500 text-yellow-600 hover:bg-yellow-500'}`}>
+                <Sparkles size={18} /> AIと話す
               </a>
             </div>
           </div>
@@ -203,6 +441,24 @@ const App = () => {
         </div>
       </section>
 
+      {/* NEW: AI Interactive Zone Section */}
+      <section id="ai-zone" className={`py-20 ${isDarkMode ? 'bg-[#233140]' : 'bg-gray-100'}`}>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl font-bold mb-4 flex justify-center items-center gap-2">
+              <Sparkles className="text-yellow-500" />
+              AI Interactive Zone
+              <Sparkles className="text-yellow-500" />
+            </h2>
+            <p className="opacity-70">
+              Gemini APIを活用した実験的な機能です。AIアシスタントと話したり、YouTubeの企画を考えたりできます。
+            </p>
+          </div>
+          
+          <AIFeatures isDarkMode={isDarkMode} />
+        </div>
+      </section>
+
       {/* Social & Contact Section */}
       <section id="contact" className="py-20 relative overflow-hidden">
         {/* Background Decorative Circles */}
@@ -284,6 +540,16 @@ const App = () => {
         }
         .animate-float {
           animation: float 6s ease-in-out infinite;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background-color: rgba(156, 163, 175, 0.5);
+          border-radius: 20px;
         }
       `}</style>
     </div>
