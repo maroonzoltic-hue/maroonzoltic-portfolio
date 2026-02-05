@@ -17,7 +17,15 @@ const XIcon = ({ size = 24, className = "" }) => (
 
 // --- Gemini API Helper Function ---
 const callGeminiAPI = async (prompt, systemInstruction = "") => {
-  const apiKey = ""; // Provided by the environment at runtime
+  // 【重要】GitHubで公開する場合、ここに取得したGemini APIキーを貼り付けてください
+  // 例: const apiKey = "AIzaSy...";
+  const apiKey = ""; 
+
+  // キーが設定されていない場合のアラート
+  if (!apiKey) {
+    return "APIキーが設定されていません。GitHubのコード内の `const apiKey` にキーを入力してください。";
+  }
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
   
   const payload = {
